@@ -19,12 +19,13 @@ class ProductImportController extends Controller
     {
         try {
             if ($request->hasFile('csv')) {
-                $csv = file($request->file('csv'));  // Correctly get the file path
+                $csv = file($request->file('csv'));
                 $chunks = array_chunk($csv, 500);
-
                 $header = [];
-
                 $batch = Bus::batch([])->dispatch();
+
+                $totalJobs = count($chunks);
+
                 foreach ($chunks as $key => $chunk) {
                     $data = array_map('str_getcsv', $chunk);
 
@@ -32,15 +33,29 @@ class ProductImportController extends Controller
                         $header = $data[0];
                         unset($data[0]);
                     }
+
                     $batch->add(new ProductCSVData($data, $header));
                 }
-            }
 
-            return redirect()->route('products.import.index')
-                ->with('success', 'CSV import added to the queue, will update you once done');
+                return response()->json(['success' => true, 'total_jobs' => $totalJobs, 'batch_id' => $batch->id]);
+            }
+            
+            return response()->json(['success' => false, 'message' => 'No CSV file provided']);
         } catch (Exception $e) {
-            return redirect()->route('products.import.index')
-                ->with('error', 'An error occurred while processing the CSV file: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'An error occurred while processing the CSV file: ' . $e->getMessage()]);
         }
+    }
+
+    public function batchProgress($batchId)
+    {
+        $batch = Bus::findBatch($batchId);
+        if (!$batch) {
+            return response()->json(['error' => 'Batch not found'], 404);
+        }
+
+        $completedJobs = $batch->processedJobs();
+        $totalJobs = $batch->totalJobs;
+
+        return response()->json(['completed_jobs' => $completedJobs, 'total_jobs' => $totalJobs]);
     }
 }
